@@ -1,0 +1,645 @@
+import os
+from pathlib import Path
+import argparse
+import numpy as np
+import pandas as pd
+from pymol import cmd
+import matplotlib.pyplot as plt
+from pymol import stored
+import copy
+import tqdm
+
+def is_druggable(score, distances, max_dim):
+    """
+    Check if the primary site is druggable based on the criteria:
+    1. The primary site must have at least 16 probe clusters.
+    2. Distances between primary and secondary sites must be <= 8 Å.
+    3. The maximum dimension of the binding site must be >= 10 Å.
+    Additionally returns medium scoring (primary site has at least 13 probe clusters)
+    and borderline (primary site has between 13 and 16 probe clusters)
+    """
+    #high_scoring = len(primary_site) >= 16
+    high_scoring = score >= 16
+    ccd = any(d[1] <= 8 for d in distances)
+    maximum_distance = max_dim >= 10
+    medium_scoring = score >= 13
+    borderline = 16 > score >= 13
+    
+    return high_scoring, ccd, maximum_distance, medium_scoring, borderline
+
+def calculate_center_of_mass(selection):
+    """
+    Calculate the center of mass (COM) for a given selection of atoms.
+    """
+    model = cmd.get_model(selection)
+    total_mass = 0
+    com = np.array([0.0, 0.0, 0.0])
+    
+    for atom in model.atom:
+        mass = atom.get_mass()  # Get atomic mass
+        total_mass += mass
+        com += np.array(atom.coord) * mass
+    
+    if total_mass > 0:
+        com /= total_mass  # Divide by total mass to get the COM
+    return com
+
+def calculate_centroid(selection):
+    """
+    Calculate the centroid for a given selection of atoms.
+    """
+    model = cmd.get_model(selection)
+    centroid = np.array([0.0, 0.0, 0.0])
+    num_atoms = 0
+
+    for atom in model.atom:
+        num_atoms += 1
+        centroid += np.array(atom.coord)
+    
+    if num_atoms > 0:
+        centroid /= num_atoms  # Divide by num atoms to get the centroid
+    return centroid
+
+def sites_within_cutoff_com(primary_site, secondary_sites, cutoff):
+    """
+    Measure the distances between the center of mass (COM) of the primary site
+    and the secondary consensus sites. 
+    """
+    valid_sites = []
+    
+    # Calculate centroid for the primary site
+    primary_com = calculate_center_of_mass(primary_site)
+    
+    for site in secondary_sites:
+        if primary_site == site:
+            continue
+        else:
+            secondary_com = calculate_center_of_mass(site)
+            # Calculate Euclidean distance between the centroid
+            dist = np.linalg.norm(primary_com - secondary_com)
+            if dist <= cutoff:
+                valid_sites.append(site)
+    
+    return valid_sites
+
+def sites_within_cutoff_centroid(primary_site, secondary_sites, cutoff):
+    """
+    Measure the distances between the centroid of the primary site
+    and the secondary consensus sites. 
+    """
+    valid_sites = []
+    
+    # Calculate centroid for the primary site
+    primary_com = calculate_centroid(primary_site)
+    
+    for site in secondary_sites:
+        if primary_site == site:
+            continue
+        else:
+            secondary_com = calculate_centroid(site)
+            # Calculate Euclidean distance between the centroid
+            dist = np.linalg.norm(primary_com - secondary_com)
+            if dist <= cutoff:
+                valid_sites.append(site)
+    
+    return valid_sites
+
+def measure_distances_com(primary_site, secondary_sites):
+    """
+    Measure the distances between the center of mass (COM) of the primary site
+    and the secondary consensus sites. Heavy atoms, iteratively, more than one primary hotspot
+    """
+    distances = []
+    
+    # Calculate center of mass for the primary site
+    primary_com = calculate_center_of_mass(primary_site)
+    
+    for site in secondary_sites:
+        if primary_site == site:
+            continue
+        else:
+            secondary_com = calculate_center_of_mass(site)
+            # Calculate Euclidean distance between the centers of mass
+            dist = np.linalg.norm(primary_com - secondary_com)
+            distances.append((site, dist))
+    
+    return distances
+
+def measure_distances_centroid(primary_site, secondary_sites):
+    """
+    Measure the distances between the centroid of the primary site
+    and the secondary consensus sites. Heavy atoms, iteratively, more than one primary hotspot
+    """
+    distances = []
+    
+    # Calculate centroid for the primary site
+    primary_com = calculate_centroid(primary_site)
+    
+    for site in secondary_sites:
+        if primary_site == site:
+            continue
+        else:
+            secondary_com = calculate_centroid(site)
+            # Calculate Euclidean distance between the centroid
+            dist = np.linalg.norm(primary_com - secondary_com)
+            distances.append((site, dist))
+    
+    return distances
+
+
+def calculate_max_dim(secondary_sites):
+    """
+    Calculate the maximum dimension (distance between the two farthest points) of the binding site
+    based on the center of mass of all secondary consensus sites.
+    """
+    all_coords = []
+    for site in secondary_sites:
+        model = cmd.get_model(site)
+        for atom in model.atom:
+            all_coords.append(np.array(atom.coord))
+
+    # If less than two atoms, we can't calculate a distance
+    if len(all_coords) < 2:
+        #print("Not enough atoms to calculate max dimension.")
+        return 0.0
+
+    # Calculate the maximum distance between all pairs of coordinates
+    max_dim = 0.0
+    for i, coord1 in enumerate(all_coords):
+        for coord2 in all_coords[i + 1:]:
+            dist = np.linalg.norm(coord1 - coord2)  # Euclidean distance
+            if dist > max_dim:
+                max_dim = dist
+
+    return max_dim
+
+def get_consensus_sites():
+    """
+    Extract the consensus sites from the FTMap output.
+    This function will return a list of consensus site objects.
+    """
+    return [obj for obj in cmd.get_object_list() if obj.startswith('consensus.')]
+
+def get_all_binding_sites():
+    """
+    Extract all available binding sites from the session.
+    """
+    return [obj for obj in cmd.get_object_list() if obj.startswith('binding_site.')]
+
+def get_binding_sites(binding_site_number):
+    """
+    Extract the specific binding site based on user input.
+    """
+    return [obj for obj in cmd.get_object_list() if obj.startswith(f'binding_site.{binding_site_number}')]
+
+def find_primary_consensus_site(consensus_sites, binding_site):
+    """
+    Find the primary consensus site for a given binding site.
+    The primary site will be the one with the most probe clusters.
+    """
+    primary_consensus_site = None
+    highest_rank = float('inf')
+    for consensus_site in consensus_sites:
+        #print(measure_distances(binding_site, [consensus_site]))
+        if cmd.select(f'{consensus_site} within 2 of {binding_site}'):
+            rank = int(consensus_site.split('.')[1])
+            if rank < highest_rank:
+                highest_rank = rank
+                primary_consensus_site = consensus_site
+
+    return primary_consensus_site
+
+def write_output(dists, output_file):
+    """
+    Write the druggability analysis results to a CSV file.
+    """
+    df = pd.DataFrame(dists).T
+    df.to_csv(output_file)
+    print(f"Results written to {output_file}")
+
+
+def calculate_all_criteria_percentages(df, criteria_list):
+    """
+    Calculate the percentage of binding sites meeting each specified criterion independently
+    and store each percentage as a separate column in a new DataFrame.
+    
+    Parameters:
+        df (DataFrame): The DataFrame with binding site data.
+        criteria_list (list): List of criteria to analyze, each either a single string or a tuple of strings.
+        
+    Returns:
+        DataFrame: A DataFrame with binding sites as rows and each criterion's percentage as columns.
+    """
+    # Create a new DataFrame for storing percentages
+    percentage_df = pd.DataFrame(index=df['binding_site'].unique())
+
+    for criterion in criteria_list:
+        # Create label based on whether the criterion is a tuple (multiple conditions) or a single string
+        if isinstance(criterion, tuple):
+            label = " & ".join(criterion)
+        else:
+            label = criterion
+            criterion = (criterion,)
+
+        # Calculate the percentage for the current criterion per binding site
+        percentages = (
+            df.groupby('binding_site')
+              .apply(lambda x: (x[list(criterion)].all(axis=1).mean()) * 100)
+        )
+        
+        # Add this percentage data to the DataFrame
+        percentage_df[label] = percentages
+
+    # Fill any NaN values that may have been created due to missing binding sites with 0
+    percentage_df = percentage_df.fillna(0)
+    return percentage_df
+
+def plot_criteria_percentages_bar(args):
+    """
+    Plot the percentage of binding sites meeting each criterion using a bar chart.
+    
+    Parameters:
+        percentage_df (DataFrame): DataFrame where each column is the percentage of binding sites 
+                                   meeting that specific criterion.
+        top_n (int, optional): If provided, only the first N binding sites will be plotted.
+    """
+    percentage_df = pd.read_csv(args.percentage_file)
+    # If top_n is specified, select only the first N binding sites
+    if args.top_n:
+        percentage_df = percentage_df.iloc[:args.top_n]
+
+    percentage_df.plot(kind='bar', figsize=(12, 8), width=0.8)
+
+    plt.xlabel('Binding Site')
+    plt.ylabel('Percentage of Binding Sites Meeting Criteria (%)')
+    plt.title('Percentage of Binding Sites Meeting Each Criterion')
+    plt.xticks(rotation=45, ha='right')
+    plt.ylim(0, 100)
+    plt.legend(loc='upper right', bbox_to_anchor=(1.15, 1))
+    plt.tight_layout()
+    plt.show()
+
+
+def plot_single_binding_site(args):
+    """
+    Plot the percentage of a single binding site meeting each criterion as a bar chart.
+    
+    Parameters:
+        percentage_df (DataFrame): DataFrame where each column is the percentage of binding sites 
+                                   meeting that specific criterion.
+        binding_site (str): The specific binding site to plot.
+    """
+    percentage_df = pd.read_csv(args.percentage_file, index_col=0)
+    binding_site = f"binding_site.{args.binding_site}"
+    if binding_site not in percentage_df.index:
+        print(f"Binding site '{binding_site}' not found.")
+        return
+    
+    single_site_df = percentage_df.loc[binding_site]
+
+    single_site_df.plot(kind='bar', figsize=(10, 6), width=0.6, color='skyblue')
+
+    plt.xlabel('Criteria')
+    plt.ylabel('Percentage of Binding Site Meeting Criteria (%)')
+    plt.title(f'Percentage of Binding Site {binding_site} Meeting Each Criterion')
+    plt.xticks(rotation=45, ha='right')
+    plt.ylim(0, 100)
+    plt.tight_layout()
+    plt.show()
+
+def analyze_single(args):
+
+    # Read the scores and initialize output data structure
+    df = pd.read_csv(args.scores)
+    dists = {}
+
+    # Load the PyMOL session and extract the specific binding site
+    cmd.reinitialize()
+    cmd.load(args.bs_sesh_path)
+    
+    if args.all_sites:
+        binding_sites = get_all_binding_sites()  # Analyze all sites
+    elif args.bs:
+        binding_sites = get_binding_sites(args.bs)  # Analyze specific site
+    else:
+        raise ValueError("You must specify either --bs or --all_sites")
+
+    for index, row in df.iterrows():
+        pdb_id = row['Structure']
+        bound_state = row['Kind'] if 'Kind' in row else row['Type']
+        ftmap_path = args.ftmap_path
+        print(f"Loading {ftmap_path}/{pdb_id}_aligned_ftmap.pdb")
+        if Path(f'{ftmap_path}/{pdb_id}_aligned_ftmap.pdb').is_file():
+            cmd.load(f"{ftmap_path}/{pdb_id}_aligned_ftmap.pdb")
+        else:
+            continue
+        # Extract consensus sites
+        consensus_sites = get_consensus_sites()
+        print(binding_sites)
+
+        for binding_site in binding_sites:
+            site_num = 'Binding Site ' + str(binding_site.split('.')[1])
+            score = row[site_num]
+            key = str(pdb_id) + '_' + str(binding_site)
+            if key not in dists:
+                dists[key] = {}
+            print(f"Analyzing binding site: {binding_site}")
+
+            # Find the primary consensus site for the specified binding site
+            primary_consensus_site = find_primary_consensus_site(consensus_sites, binding_site)
+            print(f"Primary consensus site: {primary_consensus_site}")
+
+            # Get secondary consensus sites within proximity
+            new_binding_sites = cmd.get_object_list(f"consensus.* within 2 of {binding_site}")
+            distances = measure_distances_com(primary_consensus_site, new_binding_sites)
+            #consensus_sites_within_binding_site = set(new_binding_sites)
+
+            consensus_set = set(consensus_sites)
+            consensus_set.discard(primary_consensus_site)
+            working_set = set(sites_within_cutoff_com(primary_consensus_site, list(consensus_set), 8))
+            consensus_sites_within_binding_site = copy.deepcopy(working_set)
+            consensus_sites_within_binding_site.add(primary_consensus_site)
+            if primary_consensus_site in working_set:
+                working_set.remove(primary_consensus_site)
+
+            to_be_added = set()
+            while len(working_set) != 0:
+                for consensus_site in working_set:
+                    if int(consensus_site.split('.')[2]) > 3:
+                        working_consensus_set = set(consensus_sites)
+                        working_consensus_set.discard(consensus_site)
+                        new_sites = set(sites_within_cutoff_com(consensus_site, list(working_consensus_set),8))
+                        if len(new_sites) != 0:
+                            consensus_sites_within_binding_site.update(new_sites)
+                            to_be_added.update(new_sites)
+                working_set = to_be_added
+                to_be_added.clear()
+
+            consensus_sites_within_binding_site = list(consensus_sites_within_binding_site)
+                    
+            if len(consensus_sites_within_binding_site) == 0:
+                print(f"No consensus sites found near binding site {binding_site}")
+                dists[key]['pdb_id'] = pdb_id
+                dists[key]['bound state'] = bound_state
+                dists[key]['binding_site'] = binding_site
+                dists[key]['score'] = 0
+                dists[key]['max_dim'] = 0.0
+                dists[key]['druggability'] = False
+                dists[key]['high_scoring'] = False
+                dists[key]['ccd'] = False
+                dists[key]['maximum_distance'] = False
+                dists[key]['medium_scoring'] = False
+                dists[key]['borderline'] = False
+            else:
+                print(f"Consensus sites within binding site {binding_site}: {consensus_sites_within_binding_site}")
+                max_dim = calculate_max_dim(consensus_sites_within_binding_site)
+
+                print(f"Measured distances: {distances}")
+                print(f"Max dimension of binding site: {max_dim}")
+
+                # Check if the site is druggable
+                high_scoring, ccd, maximum_distance, medium_scoring, borderline = is_druggable(score, distances, max_dim)
+                druggability = high_scoring and ccd and maximum_distance
+                dists[key]['pdb_id'] = pdb_id
+                dists[key]['bound state'] = bound_state
+                dists[key]['binding_site'] = binding_site
+                dists[key]['score'] = score 
+                dists[key]['max_dim'] = max_dim
+                dists[key]['druggability'] = druggability
+                dists[key]['high_scoring'] = high_scoring
+                dists[key]['ccd'] = ccd
+                dists[key]['maximum_distance'] = maximum_distance
+                dists[key]['medium_scoring'] = medium_scoring
+                dists[key]['borderline'] = borderline
+                print(f"Druggability result for {pdb_id} in binding site {binding_site}: {druggability}")
+
+        cmd.delete('consensus.*')
+
+    # Write results to a CSV file
+    output_file = f"{args.target}_drug_analysis_output.csv"
+    write_output(dists, output_file)
+
+def analyze_multi(args):
+    # parser = argparse.ArgumentParser(description="Analyze druggability of binding sites based on FTMap output.")
+    # parser.add_argument("--data_folder", help="Path to the folder containing the data files.", required=True)
+    #parser.add_argument("--bs", help="Binding site number to analyze.")  # Make binding site number optional
+    #parser.add_argument("--all_sites", help="Flag to analyze all binding sites", action='store_true')
+    # args = parser.parse_args()
+
+    subfolders = [f.name for f in os.scandir(args.data_folder) if f.is_dir()]
+
+    subfolders_set = set(subfolders)
+    subfolders_set.discard('results')
+    subfolders = list(subfolders_set)
+
+    for target in tqdm.tqdm(subfolders):
+        scores = f"{args.data_folder}/{target}/{target}_scores.csv"
+        bs_sesh_path = f"{args.data_folder}/{target}/binding_site_session.pse"
+        target = target
+        # Read the scores and initialize output data structure
+        df = pd.read_csv(scores)
+        dists = {}
+
+        # Load the PyMOL session and extract the specific binding site
+        cmd.reinitialize()
+        cmd.load(bs_sesh_path)
+        
+        # if args.all_sites:
+        #     binding_sites = get_all_binding_sites()  # Analyze all sites
+        # elif args.bs:
+        #     binding_sites = get_binding_sites(args.bs)  # Analyze specific site
+        # else:
+        #     raise ValueError("You must specify either --bs or --all_sites")
+
+        binding_sites = get_all_binding_sites()
+
+        for index, row in df.iterrows():
+            pdb_id = row['Structure']
+            bound_state = row['Kind'] if 'Kind' in row else row['Type']
+            ftmap_path = f"{args.data_folder}/{target}/ftmap_files"
+            #print(f"Loading {ftmap_path}/{pdb_id}_aligned_ftmap.pdb")
+            if Path(f'{ftmap_path}/{pdb_id}_aligned_ftmap.pdb').is_file():
+                cmd.load(f"{ftmap_path}/{pdb_id}_aligned_ftmap.pdb")
+            else:
+                continue
+            # Extract consensus sites
+            consensus_sites = get_consensus_sites()
+
+            for binding_site in binding_sites:
+                site_num = 'Binding Site ' + str(binding_site.split('.')[1])
+                score = row[site_num]
+                key = str(pdb_id) + '_' + str(binding_site)
+                if key not in dists:
+                    dists[key] = {}
+                #print(f"Analyzing binding site: {binding_site}")
+
+                # Find the primary consensus site for the specified binding site
+                primary_consensus_site = find_primary_consensus_site(consensus_sites, binding_site)
+                #print(f"Primary consensus site: {primary_consensus_site}")
+
+                # Get secondary consensus sites within proximity
+                new_binding_sites = cmd.get_object_list(f"consensus.* within 2 of {binding_site}")
+                distances = measure_distances_com(primary_consensus_site, new_binding_sites)
+                #consensus_sites_within_binding_site = set(new_binding_sites)
+
+                consensus_set = set(consensus_sites)
+                consensus_set.discard(primary_consensus_site)
+                working_set = set(sites_within_cutoff_com(primary_consensus_site, list(consensus_set), 8))
+                consensus_sites_within_binding_site = copy.deepcopy(working_set)
+                consensus_sites_within_binding_site.add(primary_consensus_site)
+                if primary_consensus_site in working_set:
+                    working_set.remove(primary_consensus_site)
+
+                to_be_added = set()
+                while len(working_set) != 0:
+                    for consensus_site in working_set:
+                        if int(consensus_site.split('.')[2]) > 3:
+                            working_consensus_set = set(consensus_sites)
+                            working_consensus_set.discard(consensus_site)
+                            new_sites = set(sites_within_cutoff_com(consensus_site, list(working_consensus_set),8))
+                            if len(new_sites) != 0:
+                                consensus_sites_within_binding_site.update(new_sites)
+                                to_be_added.update(new_sites)
+                    working_set = to_be_added
+                    to_be_added.clear()
+
+                consensus_sites_within_binding_site = list(consensus_sites_within_binding_site)
+
+                if len(consensus_sites_within_binding_site) == 0:
+                    #print(f"No consensus sites found near binding site {binding_site}")
+                    dists[key]['pdb_id'] = pdb_id
+                    dists[key]['bound state'] = bound_state
+                    dists[key]['binding_site'] = binding_site
+                    dists[key]['score'] = 0
+                    dists[key]['max_dim'] = 0.0
+                    dists[key]['druggability'] = False
+                    dists[key]['high_scoring'] = False
+                    dists[key]['ccd'] = False
+                    dists[key]['maximum_distance'] = False
+                    dists[key]['medium_scoring'] = False
+                    dists[key]['borderline'] = False
+                else:
+                    #print(f"Consensus sites within binding site {binding_site}: {consensus_sites_within_binding_site}")
+                    max_dim = calculate_max_dim(consensus_sites_within_binding_site)
+
+                    #print(f"Measured distances: {distances}")
+                    #print(f"Max dimension of binding site: {max_dim}")
+
+                    # Check if the site is druggable
+                    high_scoring, ccd, maximum_distance, medium_scoring, borderline = is_druggable(score, distances, max_dim)
+                    druggability = high_scoring and ccd and maximum_distance
+                    dists[key]['pdb_id'] = pdb_id
+                    dists[key]['bound state'] = bound_state
+                    dists[key]['binding_site'] = binding_site
+                    dists[key]['score'] = score 
+                    dists[key]['max_dim'] = max_dim
+                    dists[key]['druggability'] = druggability
+                    dists[key]['high_scoring'] = high_scoring
+                    dists[key]['ccd'] = ccd
+                    dists[key]['maximum_distance'] = maximum_distance
+                    dists[key]['medium_scoring'] = medium_scoring
+                    dists[key]['borderline'] = borderline
+                    #print(f"Druggability result for {pdb_id} in binding site {binding_site}: {druggability}")
+
+            cmd.delete('consensus.*')
+
+        # Write results to a CSV file
+        if not os.path.exists(f"{args.data_folder}/results"):
+            os.makedirs(f"{args.data_folder}/results")
+        output_file = f"{args.data_folder}/results/{target}_drug_analysis_output.csv"
+        write_output(dists, output_file)
+        dists.clear()
+
+def generate_percentages(args):
+    # parser = argparse.ArgumentParser(description="Analyze druggability of binding sites based on FTMap output.")
+    # parser.add_argument("--results_file", help="Path to the folder containing the data files.", required=True)
+    # args = parser.parse_args()
+    filename_str = args.results_file
+    if Path(filename_str).is_file() and filename_str.endswith(".csv"):
+        df = pd.read_csv(filename_str)
+        index = str(filename_str).find("_drug_analysis_output.csv")
+        target = str(filename_str)[0:index]
+
+        criteria_list = [
+        ('high_scoring'),
+        ('ccd'),
+        ('maximum_distance'),
+        ('medium_scoring'),
+        ('borderline'),
+        ('high_scoring', 'ccd'),
+        ('high_scoring', 'maximum_distance'),
+        ('ccd', 'maximum_distance'),
+        ('high_scoring', 'ccd', 'maximum_distance')
+        ]
+        percentage_df = calculate_all_criteria_percentages(df, criteria_list)
+        if not os.path.exists(f"percentages/"):
+            os.makedirs(f"percentages/")
+        percentage_df.to_csv(f"percentages/{target}_percentage.csv")
+
+def generate_percentages_multi(args):
+    # parser = argparse.ArgumentParser(description="Analyze druggability of binding sites based on FTMap output.")
+    # parser.add_argument("--results_folder", help="Path to the folder containing the data files.", required=True)
+    # args = parser.parse_args()
+    for filename in os.listdir(args.results_folder):
+        filename_str = args.results_folder + '/' + filename
+        if Path(filename_str).is_file() and filename_str.endswith(".csv"):
+            df = pd.read_csv(filename_str)
+            index = str(filename).find("_drug_analysis_output.csv")
+            target = str(filename)[0:index]
+
+            criteria_list = [
+            ('high_scoring'),
+            ('ccd'),
+            ('maximum_distance'),
+            ('medium_scoring'),
+            ('borderline'),
+            ('high_scoring', 'ccd'),
+            ('high_scoring', 'maximum_distance'),
+            ('ccd', 'maximum_distance'),
+            ('high_scoring', 'ccd', 'maximum_distance')
+            ]
+            percentage_df = calculate_all_criteria_percentages(df, criteria_list)
+            if not os.path.exists(f"{args.results_folder}/percentages"):
+                os.makedirs(f"{args.results_folder}/percentages")
+            percentage_df.to_csv(f"{args.results_folder}/percentages/{target}_percentage.csv")
+
+def main():
+    parser = argparse.ArgumentParser(description="Analyze druggability of binding sites based on FTMap output.")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    
+    parser_single = subparsers.add_parser("analyze_single", help="Analyze a single target")
+    parser_single.add_argument("--scores", required=True, help="Path to the scores CSV file.")
+    parser_single.add_argument("--target", required=True, help="Target name for output file.")
+    parser_single.add_argument("--bs_sesh_path", required=True, help="Path to binding site session PSE file.")
+    parser_single.add_argument("--ftmap_path", required=True, help="Path to FTMap files.")
+    parser_single.add_argument("--bs", help="Binding site number to analyze.")
+    parser_single.add_argument("--all_sites", action='store_true', help="Analyze all binding sites.")
+    parser_single.set_defaults(func=analyze_single)
+    
+    parser_batch = subparsers.add_parser("analyze_multi", help="Analyze multiple targets in a directory")
+    parser_batch.add_argument("--data_folder", required=True, help="Path to the data folder.")
+    parser_batch.set_defaults(func=analyze_multi)
+    
+    parser_percent = subparsers.add_parser("generate_percentages", help="Generate percentages from a results file")
+    parser_percent.add_argument("--results_file", required=True, help="Path to the CSV results file.")
+    parser_percent.set_defaults(func=generate_percentages)
+    
+    parser_percent_multi = subparsers.add_parser("generate_percentages_multi", help="Generate percentages from multiple results files")
+    parser_percent_multi.add_argument("--results_folder", required=True, help="Path to the folder containing results files.")
+    parser_percent_multi.set_defaults(func=generate_percentages_multi)
+
+    parser_plot = subparsers.add_parser("plot_criteria_percentages_bar", help="Plot the percentage of binding sites meeting each criterion")
+    parser_plot.add_argument("--percentage_file", required=True, help="Path to the percentages CSV file.")
+    parser_plot.add_argument("--top_n", type=int, help="Number of binding sites to plot.")
+    parser_plot.set_defaults(func=plot_criteria_percentages_bar)
+
+    parser_plot_single = subparsers.add_parser("plot_single_binding_site", help="Plot the percentage of a single binding site meeting each criterion")
+    parser_plot_single.add_argument("--percentage_file", required=True, help="Path to the percentages CSV file.")
+    parser_plot_single.add_argument("--binding_site", required=True, help="Binding site to plot.")
+    parser_plot_single.set_defaults(func=plot_single_binding_site)
+    
+    args = parser.parse_args()
+    args.func(args)
+
+if __name__ == "__main__":
+    main()
