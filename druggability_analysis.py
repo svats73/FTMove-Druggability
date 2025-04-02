@@ -232,6 +232,7 @@ def calculate_all_criteria_percentages(df, criteria_list):
     """
     # Create a new DataFrame for storing percentages
     percentage_df = pd.DataFrame(index=df['binding_site'].unique())
+    #print(percentage_df)
 
     for criterion in criteria_list:
         # Create label based on whether the criterion is a tuple (multiple conditions) or a single string
@@ -307,6 +308,156 @@ def plot_single_binding_site(args):
     plt.tight_layout()
     plt.show()
 
+def plot_criteria_histogram_all(args):
+    """
+    Plot a histogram of the specified druggability criterion across all binding sites.
+    Optionally, limit to the top_n binding sites.
+    """
+    df = pd.read_csv(args.results_file)
+
+    if args.state == "bound":
+        df = df[df['bound state'] == 'bound']
+    elif args.state == "unbound":
+        df = df[df['bound state'] == 'unbound']
+
+    if args.criteria not in df.columns:
+        print(f"Criterion '{args.criteria}' not found in the results file.")
+        return
+
+    bins = None
+    if args.criteria == "high_scoring":
+        column = "score"
+        bins = np.arange(0, 41, 4)
+    elif args.criteria == "ccd":
+        column = "min_ccd"
+        bins = np.arange(0, 31, 2)
+    elif args.criteria == "maximum_distance":
+        column = "max_dim"
+        bins = np.arange(0, 31, 2)
+    else:
+        print(f"Invalid criterion '{args.criteria}' specified.")
+        return
+
+    if args.top_n:
+        df = df.head(args.top_n)
+
+    plt.figure(figsize=(10, 6))
+    plt.hist(df[column], bins=bins, edgecolor='black', rwidth=0.8)
+    #plt.xticks([0, 1], labels=['False', 'True'])
+    plt.title(f"Distribution of '{args.criteria}' Criterion Across All Binding Sites")
+    plt.xlabel(f"'{args.criteria}' Status")
+    plt.ylabel("Frequency")
+    plt.tight_layout()
+    plt.show()
+
+def plot_criteria_histogram_single(args):
+    """
+    Plot a histogram of the specified druggability criterion for a single binding site.
+    """
+    df = pd.read_csv(args.results_file)
+
+    if args.state == "bound":
+        df = df[df['bound state'] == 'bound']
+    elif args.state == "unbound":
+        df = df[df['bound state'] == 'unbound']
+
+    if args.criteria not in df.columns:
+        print(f"Criterion '{args.criteria}' not found in the results file.")
+        return
+
+    bins = None
+    if args.criteria == "high_scoring":
+        column = "score"
+        bins = np.arange(0, 41, 4)
+    elif args.criteria == "ccd":
+        column = "min_ccd"
+        bins = np.arange(0, 31, 2)
+    elif args.criteria == "maximum_distance":
+        column = "max_dim"
+        bins = np.arange(0, 31, 2)
+    else:
+        print(f"Invalid criterion '{args.criteria}' specified.")
+        return
+
+
+    binding_site = f"binding_site.{args.binding_site}"
+    df_single = df[df['binding_site'] == binding_site]
+    if df_single.empty:
+        print(f"Binding site '{args.binding_site}' not found in the results file.")
+        return
+
+    plt.figure(figsize=(6, 4))
+    plt.hist(df_single[column], bins=bins, edgecolor='black', rwidth=0.8)
+    #plt.xticks([0, 1], labels=['False', 'True'])
+    plt.title(f"Distribution of '{args.criteria}' for {args.binding_site}")
+    plt.xlabel(f"'{args.criteria}' Status")
+    plt.ylabel("Frequency")
+    plt.tight_layout()
+    plt.show()
+
+# def bound_labeling(df, bs_sesh_path, bs = None):
+#     cmd.reinitialize()
+#     cmd.load(bs_sesh_path)
+#     if bs == None:
+#         binding_sites = get_all_binding_sites()
+#     else:
+#         binding_sites = get_binding_sites(bs)
+#     for index, row in df.iterrows():
+#         kind = None
+#         for binding_site in binding_sites:
+#             cmd.reinitialize()
+#             cmd.load(bs_sesh_path)
+#             pdbid = row['Structure']  # Adjust the column name if necessary
+#             pdb = pdbid.split(".")[0]
+#             chain = pdbid.split(".")[1]
+#             query = f"{pdb}_{chain}"
+
+#             stored.results = []
+
+#             cmd.load(bs_sesh_path)
+#             cmd.fetch(query)
+#             cmd.remove("solvent")
+#             cmd.align(query, "ref_structure")
+#             cmd.select("lig", f"hetatm and not inorganic within 2 of binding_site.{args.bs}")
+#             cmd.iterate("lig", "stored.results.append(resn)")
+
+#             kind = "bound" if stored.results else "unbound"
+#             if kind == "bound":
+#                 break
+#         df.loc[index, "Kind"] = kind
+    
+#     return df
+
+def bound_labeling_single(bound_states, pdbid, bs_sesh_path, binding_sites):
+    cmd.reinitialize()
+    #cmd.load(bs_sesh_path)
+    if pdbid not in bound_states:
+        bound_states[pdbid] = {}
+    for binding_site in binding_sites:
+        # cmd.reinitialize()
+        # cmd.load(bs_sesh_path)
+        #pdbid = row['Structure']  # Adjust the column name if necessary
+        #print(pdbid)
+        pdb = pdbid.split(".")[0] if '.' in pdbid else pdbid.split("_")[0]
+        chain = pdbid.split(".")[1] if '.' in pdbid else pdbid.split("_")[1]
+        query = f"{pdb}_{chain}"
+
+        stored.results = []
+
+        cmd.load(bs_sesh_path)
+        cmd.fetch(query)
+        cmd.remove("solvent")
+        cmd.align(query, "ref_structure")
+        cmd.select("lig", f"hetatm and not inorganic within 2 of binding_site.{binding_site.split('.')[1]}")
+        cmd.iterate("lig", "stored.results.append(resn)")
+
+        kind = "bound" if stored.results else "unbound"
+        if binding_site not in bound_states[pdbid]:
+            bound_states[pdbid][binding_site] = kind
+    
+    #return kind
+
+
 def analyze_single(args):
 
     # Read the scores and initialize output data structure
@@ -324,9 +475,19 @@ def analyze_single(args):
     else:
         raise ValueError("You must specify either --bs or --all_sites")
 
+    if args.bound_states:
+        bound_states = dict()
+        for index, row in df.iterrows():
+            pdb_id = row['Structure']
+            bound_labeling_single(bound_states, pdb_id, args.bs_sesh_path, binding_sites)
+            os.remove(f"{pdb_id.split('.')[0]}.cif") if '.' in pdb_id else os.remove(f"{pdb_id.split('_')[0]}.cif")
+
+        cmd.reinitialize()
+        cmd.load(args.bs_sesh_path)
+
     for index, row in df.iterrows():
         pdb_id = row['Structure']
-        bound_state = row['Kind'] if 'Kind' in row else row['Type']
+        #bound_state = row['Kind'] if 'Kind' in row else row['Type']
         ftmap_path = args.ftmap_path
         print(f"Loading {ftmap_path}/{pdb_id}_aligned_ftmap.pdb")
         if Path(f'{ftmap_path}/{pdb_id}_aligned_ftmap.pdb').is_file():
@@ -335,10 +496,21 @@ def analyze_single(args):
             continue
         # Extract consensus sites
         consensus_sites = get_consensus_sites()
-        print(binding_sites)
+        #print(binding_sites)
+
+        # if 'Type' in df.columns:
+        #     df.rename(columns={'Type' : 'Kind'}, inplace=True)
+
+        
+        # for binding_site in binding_sites:
+        #     bound_state = bound_labeling_single(pdb_id, args.bs_sesh_path, binding_site.split('.')[1])
+        # cmd.reinitialize()
+        # cmd.load(args.bs_sesh_path)
+        # cmd.load(f"{ftmap_path}/{pdb_id}_aligned_ftmap.pdb")
 
         for binding_site in binding_sites:
             site_num = 'Binding Site ' + str(binding_site.split('.')[1])
+            bound_state = bound_states[pdb_id][binding_site] if args.bound_states else None
             score = row[site_num]
             key = str(pdb_id) + '_' + str(binding_site)
             if key not in dists:
@@ -383,6 +555,7 @@ def analyze_single(args):
                 dists[key]['bound state'] = bound_state
                 dists[key]['binding_site'] = binding_site
                 dists[key]['score'] = 0
+                dists[key]['min_ccd'] = 0.0
                 dists[key]['max_dim'] = 0.0
                 dists[key]['druggability'] = False
                 dists[key]['high_scoring'] = False
@@ -404,6 +577,7 @@ def analyze_single(args):
                 dists[key]['bound state'] = bound_state
                 dists[key]['binding_site'] = binding_site
                 dists[key]['score'] = score 
+                dists[key]['min_ccd'] = min(distances, key=lambda x: x[1]) if distances else 0.0
                 dists[key]['max_dim'] = max_dim
                 dists[key]['druggability'] = druggability
                 dists[key]['high_scoring'] = high_scoring
@@ -438,6 +612,12 @@ def analyze_multi(args):
         target = target
         # Read the scores and initialize output data structure
         df = pd.read_csv(scores)
+
+        # bound_unlabeled = False
+        # if 'Type' not in df.columns and 'Kind' not in df.columns:
+        #     bound_unlabeled = True
+            #bound_labeling(df, bs_sesh_path)
+
         dists = {}
 
         # Load the PyMOL session and extract the specific binding site
@@ -451,11 +631,24 @@ def analyze_multi(args):
         # else:
         #     raise ValueError("You must specify either --bs or --all_sites")
 
+
         binding_sites = get_all_binding_sites()
+        if args.bound_states:
+            bound_states = dict()
+            for index, row in df.iterrows():
+                pdb_id = row['Structure']
+                bound_labeling_single(bound_states, pdb_id, bs_sesh_path, binding_sites)
+                os.remove(f"{pdb_id.split('.')[0]}.cif") if '.' in pdb_id else os.remove(f"{pdb_id.split('_')[0]}.cif")
+
+            cmd.reinitialize()
+            cmd.load(bs_sesh_path)
+
+        # if 'Type' in df.columns:
+        #     df.rename(columns={'Type' : 'Kind'}, inplace=True)
 
         for index, row in df.iterrows():
             pdb_id = row['Structure']
-            bound_state = row['Kind'] if 'Kind' in row else row['Type']
+            #bound_state = row['Kind'] #if 'Kind' in row else row['Type']
             ftmap_path = f"{args.data_folder}/{target}/ftmap_files"
             #print(f"Loading {ftmap_path}/{pdb_id}_aligned_ftmap.pdb")
             if Path(f'{ftmap_path}/{pdb_id}_aligned_ftmap.pdb').is_file():
@@ -465,8 +658,10 @@ def analyze_multi(args):
             # Extract consensus sites
             consensus_sites = get_consensus_sites()
 
-            for binding_site in binding_sites:
+            for binding_site in binding_sites:  
+                #bound_state = bound_labeling_single(pdb_id, bs_sesh_path, binding_site.split('.')[1])
                 site_num = 'Binding Site ' + str(binding_site.split('.')[1])
+                bound_state = bound_states[pdb_id][binding_site] if args.bound_states else None
                 score = row[site_num]
                 key = str(pdb_id) + '_' + str(binding_site)
                 if key not in dists:
@@ -511,6 +706,7 @@ def analyze_multi(args):
                     dists[key]['bound state'] = bound_state
                     dists[key]['binding_site'] = binding_site
                     dists[key]['score'] = 0
+                    dists[key]['min_ccd'] = 0.0
                     dists[key]['max_dim'] = 0.0
                     dists[key]['druggability'] = False
                     dists[key]['high_scoring'] = False
@@ -532,6 +728,7 @@ def analyze_multi(args):
                     dists[key]['bound state'] = bound_state
                     dists[key]['binding_site'] = binding_site
                     dists[key]['score'] = score 
+                    dists[key]['min_ccd'] = min(distances, key=lambda x: x[1]) if distances else 0.0
                     dists[key]['max_dim'] = max_dim
                     dists[key]['druggability'] = druggability
                     dists[key]['high_scoring'] = high_scoring
@@ -539,7 +736,7 @@ def analyze_multi(args):
                     dists[key]['maximum_distance'] = maximum_distance
                     dists[key]['medium_scoring'] = medium_scoring
                     dists[key]['borderline'] = borderline
-                    #print(f"Druggability result for {pdb_id} in binding site {binding_site}: {druggability}")
+                    print(f"Druggability result for {pdb_id} in binding site {binding_site}: {druggability}")
 
             cmd.delete('consensus.*')
 
@@ -556,7 +753,19 @@ def generate_percentages(args):
     # args = parser.parse_args()
     filename_str = args.results_file
     if Path(filename_str).is_file() and filename_str.endswith(".csv"):
-        df = pd.read_csv(filename_str)
+        if args.state == "all":
+            df = pd.read_csv(filename_str)
+            df_bound = df[df['bound state'] == 'bound']
+            df_unbound = df[df['bound state'] == 'unbound']
+        elif args.state == "bound":
+            df = pd.read_csv(filename_str)
+            df = df[df['bound state'] == 'bound']
+        elif args.state == "unbound":
+            df = pd.read_csv(filename_str)
+            df = df[df['bound state'] == 'unbound']
+        else:
+            df = pd.read_csv(filename_str)
+        #df = pd.read_csv(filename_str)
         index = str(filename_str).find("_drug_analysis_output.csv")
         target = str(filename_str)[0:index]
 
@@ -571,19 +780,43 @@ def generate_percentages(args):
         ('ccd', 'maximum_distance'),
         ('high_scoring', 'ccd', 'maximum_distance')
         ]
-        percentage_df = calculate_all_criteria_percentages(df, criteria_list)
+        percentage_df = calculate_all_criteria_percentages(df, criteria_list) if not df.empty else pd.DataFrame()
         if not os.path.exists(f"percentages/"):
             os.makedirs(f"percentages/")
-        percentage_df.to_csv(f"percentages/{target}_percentage.csv")
+        if args.state == "all":
+            percentage_df_bound = calculate_all_criteria_percentages(df_bound, criteria_list) if not df_bound.empty else pd.DataFrame()
+            percentage_df_unbound = calculate_all_criteria_percentages(df_unbound, criteria_list) if not df_unbound.empty else pd.DataFrame()
+            percentage_df_bound.to_csv(f"percentages/{target}_percentage_bound.csv")
+            percentage_df_unbound.to_csv(f"percentages/{target}_percentage_unbound.csv")
+            percentage_df.to_csv(f"percentages/{target}_percentage.csv")
+        elif args.state == "bound":
+            percentage_df.to_csv(f"{args.results_folder}/percentages/{target}_percentage_bound.csv")
+        elif args.state == "unbound":
+            percentage_df.to_csv(f"{args.results_folder}/percentages/{target}_percentage_unbound.csv")
+        else:
+            percentage_df.to_csv(f"percentages/{target}_percentage.csv")
+        #percentage_df.to_csv(f"percentages/{target}_percentage.csv")
 
 def generate_percentages_multi(args):
     # parser = argparse.ArgumentParser(description="Analyze druggability of binding sites based on FTMap output.")
     # parser.add_argument("--results_folder", help="Path to the folder containing the data files.", required=True)
     # args = parser.parse_args()
     for filename in os.listdir(args.results_folder):
+        print(filename)
         filename_str = args.results_folder + '/' + filename
         if Path(filename_str).is_file() and filename_str.endswith(".csv"):
-            df = pd.read_csv(filename_str)
+            if args.state == "all":
+                df = pd.read_csv(filename_str)
+                df_bound = df[df['bound state'] == 'bound']
+                df_unbound = df[df['bound state'] == 'unbound']
+            elif args.state == "bound":
+                df = pd.read_csv(filename_str)
+                df = df[df['bound state'] == 'bound']
+            elif args.state == "unbound":
+                df = pd.read_csv(filename_str)
+                df = df[df['bound state'] == 'unbound']
+            else:
+                df = pd.read_csv(filename_str)
             index = str(filename).find("_drug_analysis_output.csv")
             target = str(filename)[0:index]
 
@@ -598,10 +831,22 @@ def generate_percentages_multi(args):
             ('ccd', 'maximum_distance'),
             ('high_scoring', 'ccd', 'maximum_distance')
             ]
-            percentage_df = calculate_all_criteria_percentages(df, criteria_list)
+            percentage_df = calculate_all_criteria_percentages(df, criteria_list)  if not df.empty else pd.DataFrame()
             if not os.path.exists(f"{args.results_folder}/percentages"):
                 os.makedirs(f"{args.results_folder}/percentages")
-            percentage_df.to_csv(f"{args.results_folder}/percentages/{target}_percentage.csv")
+            if args.state == "all":
+                percentage_df_bound = calculate_all_criteria_percentages(df_bound, criteria_list) if not df_bound.empty else pd.DataFrame()
+                percentage_df_unbound = calculate_all_criteria_percentages(df_unbound, criteria_list) if not df_unbound.empty else pd.DataFrame()
+                percentage_df_bound.to_csv(f"{args.results_folder}/percentages/{target}_percentage_bound.csv")
+                percentage_df_unbound.to_csv(f"{args.results_folder}/percentages/{target}_percentage_unbound.csv")
+                percentage_df.to_csv(f"{args.results_folder}/percentages/{target}_percentage.csv")
+            elif args.state == "bound":
+                percentage_df.to_csv(f"{args.results_folder}/percentages/{target}_percentage_bound.csv")
+            elif args.state == "unbound":
+                percentage_df.to_csv(f"{args.results_folder}/percentages/{target}_percentage_unbound.csv")
+            else:
+                percentage_df.to_csv(f"{args.results_folder}/percentages/{target}_percentage.csv")
+            #percentage_df.to_csv(f"{args.results_folder}/percentages/{target}_percentage.csv")
 
 def main():
     parser = argparse.ArgumentParser(description="Analyze druggability of binding sites based on FTMap output.")
@@ -614,18 +859,24 @@ def main():
     parser_single.add_argument("--ftmap_path", required=True, help="Path to FTMap files.")
     parser_single.add_argument("--bs", help="Binding site number to analyze.")
     parser_single.add_argument("--all_sites", action='store_true', help="Analyze all binding sites.")
+    parser_single.add_argument("--bound_states", action='store_true', help="Calculate bound and unbound label for each structure")
     parser_single.set_defaults(func=analyze_single)
     
     parser_batch = subparsers.add_parser("analyze_multi", help="Analyze multiple targets in a directory")
     parser_batch.add_argument("--data_folder", required=True, help="Path to the data folder.")
+    parser_single.add_argument("--bound_states", action='store_true', help="Calculate bound and unbound label for each structure")
     parser_batch.set_defaults(func=analyze_multi)
     
     parser_percent = subparsers.add_parser("generate_percentages", help="Generate percentages from a results file")
     parser_percent.add_argument("--results_file", required=True, help="Path to the CSV results file.")
+    parser_percent.add_argument("--state", choices=["bound", "unbound", "all"], 
+                                help="Filter by 'bound' or 'unbound'. If not specified, use entire dataset.")
     parser_percent.set_defaults(func=generate_percentages)
     
     parser_percent_multi = subparsers.add_parser("generate_percentages_multi", help="Generate percentages from multiple results files")
     parser_percent_multi.add_argument("--results_folder", required=True, help="Path to the folder containing results files.")
+    parser_percent_multi.add_argument("--state", choices=["bound", "unbound", "all"], 
+                                help="Filter by 'bound' or 'unbound'. If not specified, use entire dataset.")
     parser_percent_multi.set_defaults(func=generate_percentages_multi)
 
     parser_plot = subparsers.add_parser("plot_criteria_percentages_bar", help="Plot the percentage of binding sites meeting each criterion")
@@ -637,6 +888,22 @@ def main():
     parser_plot_single.add_argument("--percentage_file", required=True, help="Path to the percentages CSV file.")
     parser_plot_single.add_argument("--binding_site", required=True, help="Binding site to plot.")
     parser_plot_single.set_defaults(func=plot_single_binding_site)
+
+    parser_hist_all = subparsers.add_parser("plot_criteria_histogram_all", help="Plot histogram of a criterion across all binding sites")
+    parser_hist_all.add_argument("--results_file", required=True, help="Path to the drug analysis results CSV file.")
+    parser_hist_all.add_argument("--criteria", required=True, help="The druggability criterion to plot.")
+    parser_hist_all.add_argument("--top_n", type=int, help="Limit to the top N binding sites.")
+    parser_hist_all.add_argument("--state", choices=["bound", "unbound"],
+                                 help="Filter by 'bound' or 'unbound'. If not specified, use entire dataset.")
+    parser_hist_all.set_defaults(func=plot_criteria_histogram_all)
+
+    parser_hist_single = subparsers.add_parser("plot_criteria_histogram_single", help="Plot histogram of a criterion for a single binding site")
+    parser_hist_single.add_argument("--results_file", required=True, help="Path to the drug analysis results CSV file.")
+    parser_hist_single.add_argument("--criteria", required=True, help="The druggability criterion to plot.")
+    parser_hist_single.add_argument("--binding_site", required=True, help="Specific binding site to plot (e.g., binding_site.3).")
+    parser_hist_single.add_argument("--state", choices=["bound", "unbound"],
+                                 help="Filter by 'bound' or 'unbound'. If not specified, use entire dataset.")
+    parser_hist_single.set_defaults(func=plot_criteria_histogram_single)
     
     args = parser.parse_args()
     args.func(args)
