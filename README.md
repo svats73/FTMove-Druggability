@@ -1,13 +1,13 @@
 # Druggability Analysis Tool
 
-This Python program analyzes the druggability of binding sites using FTMap output and structural data. It provides functionalities to analyze single or multiple targets, generate percentage reports, and visualize results.
+This Python program analyzes the druggability of binding sites using FTMap output and structural data. It provides functions to analyze single or multiple targets, generate percentage reports, and visualize results.
 
 ## Requirements
 
 Ensure you have the following dependencies installed before running the program:
 
 ```sh
-pip install numpy pandas seaborn tqdm matplotlib pymol-open-source
+pip install numpy pandas tqdm matplotlib pymol-open-source
 ```
 
 ## Usage

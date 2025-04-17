@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from pymol import stored
 import copy
 import tqdm
+import re
 
 def is_druggable(score, distances, max_dim):
     """
@@ -160,7 +161,6 @@ def calculate_max_dim(secondary_sites):
 
     # If less than two atoms, we can't calculate a distance
     if len(all_coords) < 2:
-        #print("Not enough atoms to calculate max dimension.")
         return 0.0
 
     # Calculate the maximum distance between all pairs of coordinates
@@ -308,12 +308,41 @@ def plot_single_binding_site(args):
     plt.tight_layout()
     plt.show()
 
+def safe_parse(s):
+    if isinstance(s, float) or isinstance(s, int):
+        return ("unknown", float(s))
+    
+    # If it's a stringified float
+    try:
+        return ("unknown", float(s))
+    except:
+        pass
+    
+    # If it's a tuple with np.float64
+    match = re.match(r"\('(.*?)',\s*np\.float64\((.*?)\)\)", s)
+    if match:
+        key = match.group(1)
+        value = float(match.group(2))
+        return (key, value)
+    
+    # Final fallback if it's a tuple with just a float (no np.float64)
+    match = re.match(r"\('(.*?)',\s*(.*?)\)", s)
+    if match:
+        key = match.group(1)
+        value = float(match.group(2))
+        return (key, value)
+
+    # Nothing matched
+    raise ValueError(f"Unparsable string: {s}")
+
 def plot_criteria_histogram_all(args):
     """
     Plot a histogram of the specified druggability criterion across all binding sites.
     Optionally, limit to the top_n binding sites.
     """
     df = pd.read_csv(args.results_file)
+    index = str(args.results_file).find("_drug_analysis_output.csv")
+    target = str(args.results_file)[0:index]
 
     if args.state == "bound":
         df = df[df['bound state'] == 'bound']
@@ -330,6 +359,7 @@ def plot_criteria_histogram_all(args):
         bins = np.arange(0, 41, 4)
     elif args.criteria == "ccd":
         column = "min_ccd"
+        df['min_ccd'] = df['min_ccd'].apply(safe_parse)
         bins = np.arange(0, 31, 2)
     elif args.criteria == "maximum_distance":
         column = "max_dim"
@@ -342,9 +372,16 @@ def plot_criteria_histogram_all(args):
         df = df.head(args.top_n)
 
     plt.figure(figsize=(10, 6))
-    plt.hist(df[column], bins=bins, edgecolor='black', rwidth=0.8)
-    #plt.xticks([0, 1], labels=['False', 'True'])
-    plt.title(f"Distribution of '{args.criteria}' Criterion Across All Binding Sites")
+    if args.criteria == "high_scoring" or args.criteria == "maximum_distance":
+        plt.hist(df[column], bins=bins, edgecolor='black', rwidth=0.8)
+    elif args.criteria == "ccd":
+        values = df[column].apply(lambda x: x[1])
+        plt.hist(values, bins=bins, edgecolor='black', rwidth=0.8)
+    plt.xticks(bins)
+    if not args.state:
+        plt.title(f"Distribution of '{args.criteria}' for {target} All Binding Sites")
+    else:
+        plt.title(f"Distribution of '{args.criteria}' for {target} All Binding Sites ({args.state})")
     plt.xlabel(f"'{args.criteria}' Status")
     plt.ylabel("Frequency")
     plt.tight_layout()
@@ -355,6 +392,8 @@ def plot_criteria_histogram_single(args):
     Plot a histogram of the specified druggability criterion for a single binding site.
     """
     df = pd.read_csv(args.results_file)
+    index = str(args.results_file).find("_drug_analysis_output.csv")
+    target = str(args.results_file)[0:index]
 
     if args.state == "bound":
         df = df[df['bound state'] == 'bound']
@@ -371,6 +410,7 @@ def plot_criteria_histogram_single(args):
         bins = np.arange(0, 41, 4)
     elif args.criteria == "ccd":
         column = "min_ccd"
+        df['min_ccd'] = df['min_ccd'].apply(safe_parse)
         bins = np.arange(0, 31, 2)
     elif args.criteria == "maximum_distance":
         column = "max_dim"
@@ -387,75 +427,57 @@ def plot_criteria_histogram_single(args):
         return
 
     plt.figure(figsize=(6, 4))
-    plt.hist(df_single[column], bins=bins, edgecolor='black', rwidth=0.8)
-    #plt.xticks([0, 1], labels=['False', 'True'])
-    plt.title(f"Distribution of '{args.criteria}' for {args.binding_site}")
+    if args.criteria == "high_scoring" or args.criteria == "maximum_distance":
+        plt.hist(df_single[column], bins=bins, edgecolor='black', rwidth=0.8)
+    elif args.criteria == "ccd":
+        values = df_single[column].apply(lambda x: x[1])
+        plt.hist(values, bins=bins, edgecolor='black', rwidth=0.8)
+    plt.xticks(bins)
+    if not args.state:
+        plt.title(f"Distribution of '{args.criteria}' for {target} {args.binding_site}")
+    else:
+        plt.title(f"Distribution of '{args.criteria}' for {target} {args.binding_site} ({args.state})")
     plt.xlabel(f"'{args.criteria}' Status")
     plt.ylabel("Frequency")
     plt.tight_layout()
     plt.show()
 
-# def bound_labeling(df, bs_sesh_path, bs = None):
-#     cmd.reinitialize()
-#     cmd.load(bs_sesh_path)
-#     if bs == None:
-#         binding_sites = get_all_binding_sites()
-#     else:
-#         binding_sites = get_binding_sites(bs)
-#     for index, row in df.iterrows():
-#         kind = None
-#         for binding_site in binding_sites:
-#             cmd.reinitialize()
-#             cmd.load(bs_sesh_path)
-#             pdbid = row['Structure']  # Adjust the column name if necessary
-#             pdb = pdbid.split(".")[0]
-#             chain = pdbid.split(".")[1]
-#             query = f"{pdb}_{chain}"
-
-#             stored.results = []
-
-#             cmd.load(bs_sesh_path)
-#             cmd.fetch(query)
-#             cmd.remove("solvent")
-#             cmd.align(query, "ref_structure")
-#             cmd.select("lig", f"hetatm and not inorganic within 2 of binding_site.{args.bs}")
-#             cmd.iterate("lig", "stored.results.append(resn)")
-
-#             kind = "bound" if stored.results else "unbound"
-#             if kind == "bound":
-#                 break
-#         df.loc[index, "Kind"] = kind
-    
-#     return df
-
 def bound_labeling_single(bound_states, pdbid, bs_sesh_path, binding_sites):
     cmd.reinitialize()
-    #cmd.load(bs_sesh_path)
     if pdbid not in bound_states:
         bound_states[pdbid] = {}
     for binding_site in binding_sites:
-        # cmd.reinitialize()
-        # cmd.load(bs_sesh_path)
-        #pdbid = row['Structure']  # Adjust the column name if necessary
-        #print(pdbid)
         pdb = pdbid.split(".")[0] if '.' in pdbid else pdbid.split("_")[0]
         chain = pdbid.split(".")[1] if '.' in pdbid else pdbid.split("_")[1]
-        query = f"{pdb}_{chain}"
+        #query = f"{pdb}_{chain}"
 
-        stored.results = []
+        #stored.results = []
+        stored.res_ppi = []
+        stored.res_mol = []
+
+        bs_sesh_path = (args.bs_sesh_path)
+        bs = (args.bs)
 
         cmd.load(bs_sesh_path)
-        cmd.fetch(query)
+        cmd.fetch(f"{pdb}")
         cmd.remove("solvent")
-        cmd.align(query, "ref_structure")
-        cmd.select("lig", f"hetatm and not inorganic within 2 of binding_site.{binding_site.split('.')[1]}")
-        cmd.iterate("lig", "stored.results.append(resn)")
+        cmd.align(f"{pdb} and chain {chain}", "ref_structure")
+        cmd.select("ppi",f"{pdb} and not chain {chain} within 2 of binding_site.{bs}")
+        cmd.select("lig",f"hetatm and not inorganic within 2 of binding_site.{bs}")
+        cmd.iterate("ppi","stored.res_ppi.append(resn)")
+        cmd.iterate("lig","stored.res_mol.append(resn)")
 
-        kind = "bound" if stored.results else "unbound"
+        # cmd.load(bs_sesh_path)
+        # cmd.fetch(query)
+        # cmd.remove("solvent")
+        # cmd.align(query, "ref_structure")
+        # cmd.select("lig", f"hetatm and not inorganic within 2 of binding_site.{binding_site.split('.')[1]}")
+        # cmd.iterate("lig", "stored.results.append(resn)")
+
+        kind = "bound" if stored.res_ppi or stored.res_mol else "unbound"
         if binding_site not in bound_states[pdbid]:
             bound_states[pdbid][binding_site] = kind
     
-    #return kind
 
 
 def analyze_single(args):
@@ -487,7 +509,6 @@ def analyze_single(args):
 
     for index, row in df.iterrows():
         pdb_id = row['Structure']
-        #bound_state = row['Kind'] if 'Kind' in row else row['Type']
         ftmap_path = args.ftmap_path
         print(f"Loading {ftmap_path}/{pdb_id}_aligned_ftmap.pdb")
         if Path(f'{ftmap_path}/{pdb_id}_aligned_ftmap.pdb').is_file():
@@ -496,17 +517,6 @@ def analyze_single(args):
             continue
         # Extract consensus sites
         consensus_sites = get_consensus_sites()
-        #print(binding_sites)
-
-        # if 'Type' in df.columns:
-        #     df.rename(columns={'Type' : 'Kind'}, inplace=True)
-
-        
-        # for binding_site in binding_sites:
-        #     bound_state = bound_labeling_single(pdb_id, args.bs_sesh_path, binding_site.split('.')[1])
-        # cmd.reinitialize()
-        # cmd.load(args.bs_sesh_path)
-        # cmd.load(f"{ftmap_path}/{pdb_id}_aligned_ftmap.pdb")
 
         for binding_site in binding_sites:
             site_num = 'Binding Site ' + str(binding_site.split('.')[1])
@@ -523,12 +533,14 @@ def analyze_single(args):
 
             # Get secondary consensus sites within proximity
             new_binding_sites = cmd.get_object_list(f"consensus.* within 2 of {binding_site}")
-            distances = measure_distances_com(primary_consensus_site, new_binding_sites)
+            #distances = measure_distances_com(primary_consensus_site, new_binding_sites)
+            distances = measure_distances_centroid(primary_consensus_site, new_binding_sites)
             #consensus_sites_within_binding_site = set(new_binding_sites)
 
             consensus_set = set(consensus_sites)
             consensus_set.discard(primary_consensus_site)
-            working_set = set(sites_within_cutoff_com(primary_consensus_site, list(consensus_set), 8))
+            #working_set = set(sites_within_cutoff_com(primary_consensus_site, list(consensus_set), 8))
+            working_set = set(sites_within_cutoff_centroid(primary_consensus_site, list(consensus_set), 8))
             consensus_sites_within_binding_site = copy.deepcopy(working_set)
             consensus_sites_within_binding_site.add(primary_consensus_site)
             if primary_consensus_site in working_set:
@@ -540,7 +552,8 @@ def analyze_single(args):
                     if int(consensus_site.split('.')[2]) > 3:
                         working_consensus_set = set(consensus_sites)
                         working_consensus_set.discard(consensus_site)
-                        new_sites = set(sites_within_cutoff_com(consensus_site, list(working_consensus_set),8))
+                        #new_sites = set(sites_within_cutoff_com(consensus_site, list(working_consensus_set),8))
+                        new_sites = set(sites_within_cutoff_centroid(consensus_site, list(working_consensus_set),8))
                         if len(new_sites) != 0:
                             consensus_sites_within_binding_site.update(new_sites)
                             to_be_added.update(new_sites)
@@ -594,12 +607,6 @@ def analyze_single(args):
     write_output(dists, output_file)
 
 def analyze_multi(args):
-    # parser = argparse.ArgumentParser(description="Analyze druggability of binding sites based on FTMap output.")
-    # parser.add_argument("--data_folder", help="Path to the folder containing the data files.", required=True)
-    #parser.add_argument("--bs", help="Binding site number to analyze.")  # Make binding site number optional
-    #parser.add_argument("--all_sites", help="Flag to analyze all binding sites", action='store_true')
-    # args = parser.parse_args()
-
     subfolders = [f.name for f in os.scandir(args.data_folder) if f.is_dir()]
 
     subfolders_set = set(subfolders)
@@ -613,23 +620,11 @@ def analyze_multi(args):
         # Read the scores and initialize output data structure
         df = pd.read_csv(scores)
 
-        # bound_unlabeled = False
-        # if 'Type' not in df.columns and 'Kind' not in df.columns:
-        #     bound_unlabeled = True
-            #bound_labeling(df, bs_sesh_path)
-
         dists = {}
 
         # Load the PyMOL session and extract the specific binding site
         cmd.reinitialize()
         cmd.load(bs_sesh_path)
-        
-        # if args.all_sites:
-        #     binding_sites = get_all_binding_sites()  # Analyze all sites
-        # elif args.bs:
-        #     binding_sites = get_binding_sites(args.bs)  # Analyze specific site
-        # else:
-        #     raise ValueError("You must specify either --bs or --all_sites")
 
 
         binding_sites = get_all_binding_sites()
@@ -643,12 +638,8 @@ def analyze_multi(args):
             cmd.reinitialize()
             cmd.load(bs_sesh_path)
 
-        # if 'Type' in df.columns:
-        #     df.rename(columns={'Type' : 'Kind'}, inplace=True)
-
         for index, row in df.iterrows():
             pdb_id = row['Structure']
-            #bound_state = row['Kind'] #if 'Kind' in row else row['Type']
             ftmap_path = f"{args.data_folder}/{target}/ftmap_files"
             #print(f"Loading {ftmap_path}/{pdb_id}_aligned_ftmap.pdb")
             if Path(f'{ftmap_path}/{pdb_id}_aligned_ftmap.pdb').is_file():
@@ -674,12 +665,14 @@ def analyze_multi(args):
 
                 # Get secondary consensus sites within proximity
                 new_binding_sites = cmd.get_object_list(f"consensus.* within 2 of {binding_site}")
-                distances = measure_distances_com(primary_consensus_site, new_binding_sites)
+                #distances = measure_distances_com(primary_consensus_site, new_binding_sites)
+                distances = measure_distances_centroid(primary_consensus_site, new_binding_sites)
                 #consensus_sites_within_binding_site = set(new_binding_sites)
 
                 consensus_set = set(consensus_sites)
                 consensus_set.discard(primary_consensus_site)
-                working_set = set(sites_within_cutoff_com(primary_consensus_site, list(consensus_set), 8))
+                #working_set = set(sites_within_cutoff_com(primary_consensus_site, list(consensus_set), 8))
+                working_set = set(sites_within_cutoff_centroid(primary_consensus_site, list(consensus_set), 8))
                 consensus_sites_within_binding_site = copy.deepcopy(working_set)
                 consensus_sites_within_binding_site.add(primary_consensus_site)
                 if primary_consensus_site in working_set:
@@ -691,7 +684,8 @@ def analyze_multi(args):
                         if int(consensus_site.split('.')[2]) > 3:
                             working_consensus_set = set(consensus_sites)
                             working_consensus_set.discard(consensus_site)
-                            new_sites = set(sites_within_cutoff_com(consensus_site, list(working_consensus_set),8))
+                            #new_sites = set(sites_within_cutoff_com(consensus_site, list(working_consensus_set),8))
+                            new_sites = set(sites_within_cutoff_centroid(consensus_site, list(working_consensus_set),8))
                             if len(new_sites) != 0:
                                 consensus_sites_within_binding_site.update(new_sites)
                                 to_be_added.update(new_sites)
@@ -864,7 +858,7 @@ def main():
     
     parser_batch = subparsers.add_parser("analyze_multi", help="Analyze multiple targets in a directory")
     parser_batch.add_argument("--data_folder", required=True, help="Path to the data folder.")
-    parser_single.add_argument("--bound_states", action='store_true', help="Calculate bound and unbound label for each structure")
+    parser_batch.add_argument("--bound_states", action='store_true', help="Calculate bound and unbound label for each structure")
     parser_batch.set_defaults(func=analyze_multi)
     
     parser_percent = subparsers.add_parser("generate_percentages", help="Generate percentages from a results file")
