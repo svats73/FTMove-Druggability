@@ -19,7 +19,6 @@ def is_druggable(score, distances, max_dim):
     Additionally returns medium scoring (primary site has at least 13 probe clusters)
     and borderline (primary site has between 13 and 16 probe clusters)
     """
-    #high_scoring = len(primary_site) >= 16
     high_scoring = score >= 16
     ccd = any(d[1] <= 8 for d in distances)
     maximum_distance = max_dim >= 10
@@ -455,15 +454,14 @@ def bound_labeling_single(bound_states, pdbid, bs_sesh_path, binding_sites):
         stored.res_ppi = []
         stored.res_mol = []
 
-        bs_sesh_path = (args.bs_sesh_path)
-        bs = (args.bs)
+        bs_sesh_path = bs_sesh_path
 
         cmd.load(bs_sesh_path)
         cmd.fetch(f"{pdb}")
         cmd.remove("solvent")
         cmd.align(f"{pdb} and chain {chain}", "ref_structure")
-        cmd.select("ppi",f"{pdb} and not chain {chain} within 2 of binding_site.{bs}")
-        cmd.select("lig",f"hetatm and not inorganic within 2 of binding_site.{bs}")
+        cmd.select("ppi",f"{pdb} and not chain {chain} within 2 of binding_site.{binding_site.split('.')[1]}")
+        cmd.select("lig",f"hetatm and not inorganic within 2 of binding_site.{binding_site.split('.')[1]}")
         cmd.iterate("ppi","stored.res_ppi.append(resn)")
         cmd.iterate("lig","stored.res_mol.append(resn)")
 
@@ -742,9 +740,6 @@ def analyze_multi(args):
         dists.clear()
 
 def generate_percentages(args):
-    # parser = argparse.ArgumentParser(description="Analyze druggability of binding sites based on FTMap output.")
-    # parser.add_argument("--results_file", help="Path to the folder containing the data files.", required=True)
-    # args = parser.parse_args()
     filename_str = args.results_file
     if Path(filename_str).is_file() and filename_str.endswith(".csv"):
         if args.state == "all":
@@ -789,12 +784,8 @@ def generate_percentages(args):
             percentage_df.to_csv(f"{args.results_folder}/percentages/{target}_percentage_unbound.csv")
         else:
             percentage_df.to_csv(f"percentages/{target}_percentage.csv")
-        #percentage_df.to_csv(f"percentages/{target}_percentage.csv")
 
 def generate_percentages_multi(args):
-    # parser = argparse.ArgumentParser(description="Analyze druggability of binding sites based on FTMap output.")
-    # parser.add_argument("--results_folder", help="Path to the folder containing the data files.", required=True)
-    # args = parser.parse_args()
     for filename in os.listdir(args.results_folder):
         print(filename)
         filename_str = args.results_folder + '/' + filename
@@ -840,7 +831,6 @@ def generate_percentages_multi(args):
                 percentage_df.to_csv(f"{args.results_folder}/percentages/{target}_percentage_unbound.csv")
             else:
                 percentage_df.to_csv(f"{args.results_folder}/percentages/{target}_percentage.csv")
-            #percentage_df.to_csv(f"{args.results_folder}/percentages/{target}_percentage.csv")
 
 def main():
     parser = argparse.ArgumentParser(description="Analyze druggability of binding sites based on FTMap output.")
