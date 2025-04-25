@@ -366,9 +366,6 @@ def plot_criteria_histogram_all(args):
         print(f"Invalid criterion '{args.criteria}' specified.")
         return
 
-    if args.top_n:
-        df = df.head(args.top_n)
-
     plt.figure(figsize=(10, 6))
     if args.criteria == "high_scoring" or args.criteria == "maximum_distance":
         plt.hist(df[column], bins=bins, edgecolor='black')
@@ -885,7 +882,6 @@ def main():
     parser_hist_all = subparsers.add_parser("plot_criteria_histogram_all", help="Plot histogram of a criterion across all binding sites")
     parser_hist_all.add_argument("--results_file", required=True, help="Path to the drug analysis results CSV file.")
     parser_hist_all.add_argument("--criteria", required=True, help="The druggability criterion to plot.")
-    parser_hist_all.add_argument("--top_n", type=int, help="Limit to the top N binding sites.")
     parser_hist_all.add_argument("--state", choices=["bound", "unbound"],
                                  help="Filter by 'bound' or 'unbound'. If not specified, use entire dataset.")
     parser_hist_all.set_defaults(func=plot_criteria_histogram_all)
