@@ -337,7 +337,6 @@ def safe_parse(s):
 def plot_criteria_histogram_all(args):
     """
     Plot a histogram of the specified druggability criterion across all binding sites.
-    Optionally, limit to the top_n binding sites.
     """
     df = pd.read_csv(args.results_file)
     index = str(args.results_file).find("_drug_analysis_output.csv")
@@ -372,16 +371,21 @@ def plot_criteria_histogram_all(args):
 
     plt.figure(figsize=(10, 6))
     if args.criteria == "high_scoring" or args.criteria == "maximum_distance":
-        plt.hist(df[column], bins=bins, edgecolor='black', rwidth=0.8)
+        plt.hist(df[column], bins=bins, edgecolor='black')
+        if args.criteria == "high_scoring":
+            label = "Binding Site Scores"
+        else:
+            label = "Maximum Dimension (Å)"
     elif args.criteria == "ccd":
         values = df[column].apply(lambda x: x[1])
-        plt.hist(values, bins=bins, edgecolor='black', rwidth=0.8)
+        plt.hist(values, bins=bins, edgecolor='black')
+        label = "Center-to-center Distance (Å)"
     plt.xticks(bins)
     if not args.state:
-        plt.title(f"Distribution of '{args.criteria}' for {target} All Binding Sites")
+        plt.title(f"Distribution of '{label}' for {target} All Binding Sites")
     else:
-        plt.title(f"Distribution of '{args.criteria}' for {target} All Binding Sites ({args.state})")
-    plt.xlabel(f"'{args.criteria}' Status")
+        plt.title(f"Distribution of '{label}' for {target} All Binding Sites ({args.state})")
+    plt.xlabel(f"'{label}'")
     plt.ylabel("Frequency")
     plt.tight_layout()
     plt.show()
@@ -427,16 +431,21 @@ def plot_criteria_histogram_single(args):
 
     plt.figure(figsize=(6, 4))
     if args.criteria == "high_scoring" or args.criteria == "maximum_distance":
-        plt.hist(df_single[column], bins=bins, edgecolor='black', rwidth=0.8)
+        plt.hist(df_single[column], bins=bins, edgecolor='black')
+        if args.criteria == "high_scoring":
+            label = "Binding Site Scores"
+        else:
+            label = "Maximum Dimension (Å)"
     elif args.criteria == "ccd":
         values = df_single[column].apply(lambda x: x[1])
-        plt.hist(values, bins=bins, edgecolor='black', rwidth=0.8)
+        plt.hist(values, bins=bins, edgecolor='black')
+        label = "Center-to-center Distance (Å)"
     plt.xticks(bins)
     if not args.state:
-        plt.title(f"Distribution of '{args.criteria}' for {target} {args.binding_site}")
+        plt.title(f"Distribution of '{label}' for {target} {args.binding_site}")
     else:
-        plt.title(f"Distribution of '{args.criteria}' for {target} {args.binding_site} ({args.state})")
-    plt.xlabel(f"'{args.criteria}' Status")
+        plt.title(f"Distribution of '{label}' for {target} {args.binding_site} ({args.state})")
+    plt.xlabel(f"'{label}'")
     plt.ylabel("Frequency")
     plt.tight_layout()
     plt.show()
