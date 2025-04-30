@@ -75,7 +75,7 @@ python druggability_analysis.py generate_percentages --results_file path/to/resu
 
 **Arguments:**
 - `--results_file`: Path to the druggability results CSV file.
-- `--state`: (Optional) Filter percentages for only 'bound', 'unbound', or 'all' structures.
+- `--state`: (Optional) Filter percentages for only 'bound', 'unbound', or 'all' structures. 'all' will generate percentages for bound, unbound, and all structures.
 
 ---
 
@@ -87,7 +87,7 @@ python druggability_analysis.py generate_percentages_multi --results_folder path
 
 **Arguments:**
 - `--results_folder`: Path to the folder containing multiple druggability result files.
-- `--state`: (Optional) Filter percentages for only 'bound', 'unbound', or 'all' structures.
+- `--state`: (Optional) Filter percentages for only 'bound', 'unbound', or 'all' structures. 'all' will generate percentages for bound, unbound, and all structures.
 
 ---
 
@@ -97,13 +97,21 @@ python druggability_analysis.py generate_percentages_multi --results_folder path
 python druggability_analysis.py plot_criteria_percentages_bar --percentage_file path/to/percentages.csv [--top_n N]
 ```
 
+**Arguments:**
+- `--percentage_file`: Path to the percentages CSV file.
+- `--top_n`: (Optional) Plot the top n binding site percentages 
+
 ---
 
 ### 6. Plot the Percentage of a Single Binding Site Meeting Criteria
 
 ```sh
-python druggability_analysis.py plot_single_binding_site --percentage_file path/to/percentages.csv --binding_site BINDING_SITE
+python druggability_analysis.py plot_single_binding_site --percentage_file path/to/percentages.csv --binding_site BINDING_SITE_NUMBER (3 digit)
 ```
+
+**Arguments:**
+- `--percentage_file`: Path to the percentages CSV file.
+- `--binding_site`: Number of the binding site to plot
 
 ---
 
@@ -113,6 +121,11 @@ python druggability_analysis.py plot_single_binding_site --percentage_file path/
 python druggability_analysis.py plot_criteria_histogram_all --results_file path/to/results.csv --criteria CRITERION [--state {bound,unbound}]
 ```
 
+**Arguments:**
+- `--results_file`: Path to the druggability analysis results file to plot.
+- `--criteria`: Specify which druggability criteria to plot, options are `high_scoring`, `ccd`, and `maximum distance`
+- `--state`: (Optional) Filter results to only 'bound' or 'unbound' for plotting
+
 ---
 
 ### 8. Plot Histogram of a Druggability Criterion for a Single Binding Site
@@ -120,6 +133,12 @@ python druggability_analysis.py plot_criteria_histogram_all --results_file path/
 ```sh
 python druggability_analysis.py plot_criteria_histogram_single --results_file path/to/results.csv --criteria CRITERION --binding_site BINDING_SITE [--state {bound,unbound}]
 ```
+
+**Arguments:**
+- `--results_file`: Path to the druggability analysis results file to plot.
+- `--criteria`: Specify which druggability criteria to plot, options are `high_scoring`, `ccd`, and `maximum distance`
+- `--binding_site`: Number of the binding site to plot
+- `--state`: (Optional) Filter results to only 'bound' or 'unbound' for plotting
 
 ---
 
@@ -174,7 +193,7 @@ python druggability_analysis.py plot_criteria_percentages_bar --percentage_file 
 Single binding site plot:
 
 ```sh
-python druggability_analysis.py plot_single_binding_site --percentage_file percentages/proteinX_percentage.csv --binding_site binding_site.3
+python druggability_analysis.py plot_single_binding_site --percentage_file percentages/proteinX_percentage.csv --binding_site 003
 ```
 
 Histogram across all:
@@ -186,5 +205,5 @@ python druggability_analysis.py plot_criteria_histogram_all --results_file resul
 Histogram for one:
 
 ```sh
-python druggability_analysis.py plot_criteria_histogram_single --results_file results/proteinX_drug_analysis_output.csv --criteria ccd --binding_site binding_site.3
+python druggability_analysis.py plot_criteria_histogram_single --results_file results/proteinX_drug_analysis_output.csv --criteria ccd --binding_site 003
 ```
