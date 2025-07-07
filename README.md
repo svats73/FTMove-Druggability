@@ -10,6 +10,11 @@ Ensure you have the following dependencies installed before running the program:
 pip install numpy pandas tqdm matplotlib pymol-open-source
 ```
 
+## Data Availability
+
+All data used for analysis can be found in the data folder. pdb_ids.xlsx contains the name of the target and its corresponding reference PDB ID used for analysis.
+The targets results used for analysis are broken down by the source data set with each target folder containing its respective analysis information. For each target, its folder contains the FTMap results/outputs, FTMove binding site meshes in pse format, and hotspot scores for each target binding site in csv format.
+
 ## Usage
 
 The program is designed to be run from the command line using various subcommands.
