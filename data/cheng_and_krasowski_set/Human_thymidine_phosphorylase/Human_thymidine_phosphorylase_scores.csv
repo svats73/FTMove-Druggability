@@ -1,0 +1,12 @@
+Kind,Structure,Binding Site 000,Binding Site 001,Binding Site 002,Binding Site 003,Binding Site 004,Binding Site 005,Binding Site 006,Binding Site 007,Binding Site 008,Binding Site 009
+bound,1UOU.A,3,14,16,3,14,3,0,3,1,0
+unbound,2WK5.A,16,11,10,12,11,10,0,3,0,5
+bound,2J0F.A,10,6,12,10,10,6,0,6,11,2
+unbound,2WK5.B,14,13,17,12,13,9,0,6,0,0
+unbound,2WK5.D,15,17,6,9,12,5,8,0,0,0
+bound,2J0F.D,12,7,9,12,5,9,14,5,0,0
+unbound,2J0F.C,11,7,13,11,5,8,13,4,0,0
+bound,2J0F.B,14,12,8,12,6,10,2,8,0,3
+unbound,2WK5.C,17,12,10,14,7,6,13,2,0,0
+bound,2WK6.A,15,14,10,13,11,11,0,2,1,9
+bound,2WK6.B,14,8,9,12,8,15,0,10,0,3

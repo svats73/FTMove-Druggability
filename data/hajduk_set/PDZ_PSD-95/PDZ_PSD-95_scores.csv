@@ -1,0 +1,11 @@
+Type,Structure,Binding Site 000,Binding Site 001,Binding Site 002,Binding Site 003,Binding Site 004,Binding Site 005,Binding Site 006,Binding Site 007,Binding Site 008
+bound,3RL7.D,23,13,15,11,0,13,0,0,8
+bound,2MHO.A,24,18,5,14,0,0,2,0,3
+bound,1RGR.A,15,4,19,21,13,0,0,12,10
+bound,3RL7.E,25,14,16,11,0,18,0,0,0
+bound,3RL7.F,24,19,15,10,0,3,0,0,2
+unbound,1KEF.A,21,17,19,9,0,0,0,0,0
+bound,3RL7.B,22,21,16,12,0,9,0,0,2
+bound,3RL7.C,14,9,16,9,0,11,0,0,0
+unbound,1ZOK.A,21,23,0,0,18,0,20,3,0
+bound,3RL7.A,19,21,16,10,0,12,0,0,8
